@@ -1,6 +1,5 @@
 import os
 import streamlit as st
-import html
 import re
 from uuid import uuid4
 from pathlib import Path

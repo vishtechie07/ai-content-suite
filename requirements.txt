@@ -15,15 +15,7 @@ elevenlabs>=0.2.0
 # Environment Management
 python-dotenv>=1.0.0
 
-# Security Dependencies
+# Security Dependencies (only used dependencies)
 cryptography>=41.0.0
-bcrypt>=4.0.0
-passlib>=1.7.4
-python-jose[cryptography]>=3.3.0
-
-# Input Validation and Sanitization
 bleach>=6.0.0
 markupsafe>=2.1.0
-
-# Rate Limiting and Security
-limits>=3.6.0

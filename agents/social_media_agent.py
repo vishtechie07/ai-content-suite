@@ -1,5 +1,4 @@
 import streamlit as st
-import html
 import re
 from urllib.parse import urlparse
 from agno.agent import Agent
