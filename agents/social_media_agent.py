@@ -151,7 +151,7 @@ class SocialMediaAgent:
                 
                 social_media_agent = Agent(
                     name=self.agent_name,
-                    agent_id=self.agent_id,
+                    id=self.agent_id,
                     model=OpenAIChat(id="gpt-4o", api_key=openai_key),
                     tools=[FirecrawlTools(api_key=firecrawl_key)] if input_method == "🌐 Article/Blog URL" else [],
                     description="An AI specialist in creating engaging social media content with platform-specific formatting and hashtags.",
@@ -175,7 +175,7 @@ class SocialMediaAgent:
                 else:
                     prompt = f"Create social media posts for: {sanitized_content}"
 
-                generated_posts: AgentRunResult = social_media_agent.run(prompt)
+                generated_posts: AgentRunResult = social_media_agent.run(prompt, stream=False)
 
                 if generated_posts.content:
                     st.success("🎉 Social media posts generated successfully!")

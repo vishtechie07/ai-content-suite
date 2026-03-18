@@ -151,7 +151,7 @@ class StudyPlanAgent:
                 
                 study_agent = Agent(
                     name=self.agent_name,
-                    agent_id=self.agent_id,
+                    id=self.agent_id,
                     model=OpenAIChat(id="gpt-4o", api_key=openai_key),
                     tools=[FirecrawlTools(api_key=firecrawl_key)] if input_method == "🌐 Article/Course URL" else [],
                     description="An AI specialist in creating personalized study plans with structured learning objectives and timelines.",
@@ -175,7 +175,7 @@ class StudyPlanAgent:
                 else:
                     prompt = f"Create a study plan for: {sanitized_content}"
 
-                generated_plan: AgentRunResult = study_agent.run(prompt)
+                generated_plan: AgentRunResult = study_agent.run(prompt, stream=False)
 
                 if generated_plan.content:
                     st.success("🎉 Study plan generated successfully!")

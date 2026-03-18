@@ -197,7 +197,7 @@ class VideoScriptAgent:
                 
                 script_agent = Agent(
                     name=self.agent_name,
-                    agent_id=self.agent_id,
+                    id=self.agent_id,
                     model=OpenAIChat(id="gpt-4o", api_key=openai_key),
                     tools=[],
                     description="An AI specialist in creating engaging video scripts with proper structure and timing.",
@@ -220,7 +220,7 @@ class VideoScriptAgent:
                 else:
                     prompt = f"Create a {video_style.lower()} video script from this content:\n\n{content_for_agent}"
                 
-                generated_script: AgentRunResult = script_agent.run(prompt)
+                generated_script: AgentRunResult = script_agent.run(prompt, stream=False)
 
                 if generated_script.content:
                     st.success("🎉 Success! Your video script has been generated!")

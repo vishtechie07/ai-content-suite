@@ -12,6 +12,33 @@ from agno.utils.audio import write_audio_to_file
 from agno.utils.log import logger
 from security_config import security_manager
 
+
+def _persist_agent_audio(audio_item, path: Path) -> bool:
+    b64 = getattr(audio_item, "base64_audio", None)
+    if b64:
+        write_audio_to_file(audio=b64, filename=str(path))
+        return True
+    if hasattr(audio_item, "get_content_bytes"):
+        raw = audio_item.get_content_bytes()
+        if raw:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(raw)
+            return True
+    if hasattr(audio_item, "to_base64"):
+        tb = audio_item.to_base64()
+        if tb:
+            write_audio_to_file(audio=tb, filename=str(path))
+            return True
+    return False
+
+
+def _audio_ext_mime(audio_item):
+    fmt = (getattr(audio_item, "format", None) or "mp3").lower().strip(".")
+    if fmt in ("wav", "wave", "pcm"):
+        return "wav", "audio/wav"
+    return "mp3", "audio/mpeg"
+
+
 try:
     from firecrawl import Firecrawl
     FIRECRAWL_SDK_AVAILABLE = True
@@ -208,7 +235,7 @@ class PodcastAgent:
                 
                 podcast_creation_agent = Agent(
                     name=self.agent_name,
-                    agent_id=self.agent_id,
+                    id=self.agent_id,
                     model=test_model,
                     tools=[elevenlabs_tools],
                     description="An intelligent AI agent specialized in creating engaging podcast content from blog articles.",
@@ -227,7 +254,7 @@ class PodcastAgent:
                 st.info("📝 Generating podcast content...")
 
                 prompt = f"Create a compelling podcast summary and audio from this blog content:\n\n{sanitized_content}"
-                generated_podcast: AgentRunResult = podcast_creation_agent.run(prompt)
+                generated_podcast: AgentRunResult = podcast_creation_agent.run(prompt, stream=False)
 
                 try:
                     output_directory = self.secure_file_path("generated_audio_files", "")
@@ -253,25 +280,21 @@ class PodcastAgent:
 
                 if hasattr(generated_podcast, 'audio') and generated_podcast.audio and len(generated_podcast.audio) > 0:
                     st.success("✅ Audio generated successfully!")
-                    
+                    a0 = generated_podcast.audio[0]
+                    ext, mime = _audio_ext_mime(a0)
                     try:
-                        safe_filename = f"podcast_episode_{uuid4()}.wav"
+                        safe_filename = f"podcast_episode_{uuid4()}.{ext}"
                         output_directory = self.secure_file_path(f"generated_audio_files/{user_id}", "")
                         output_directory.mkdir(exist_ok=True)
-
-                        for old_wav in output_directory.glob("*.wav"):
+                        for old in list(output_directory.glob("*.wav")) + list(output_directory.glob("*.mp3")):
                             try:
-                                old_wav.unlink()
+                                old.unlink()
                             except Exception:
                                 pass
-
                         output_filename = self.secure_file_path(f"generated_audio_files/{user_id}", safe_filename)
-                        
-                        write_audio_to_file(
-                            audio=generated_podcast.audio[0].base64_audio,
-                            filename=str(output_filename)
-                        )
-
+                        if not _persist_agent_audio(a0, output_filename):
+                            st.error("❌ Could not save audio output.")
+                            return
                         size_bytes = output_filename.stat().st_size
                         if size_bytes > self.MAX_AUDIO_BYTES:
                             try:
@@ -280,22 +303,17 @@ class PodcastAgent:
                                 pass
                             st.error("❌ Generated audio exceeds the allowed size.")
                             return
-                        
                         st.success(f"💾 Audio saved to: {safe_filename}")
-                        
                         st.markdown("### 🎧 Listen to Your Podcast")
-
                         try:
-                            with open(output_filename, "rb") as audio_file:
-                                audio_file_content = audio_file.read()
-                            st.audio(audio_file_content, format="audio/wav")
-
+                            audio_file_content = output_filename.read_bytes()
+                            st.audio(audio_file_content, format=mime)
                             st.markdown("### 💾 Download Options")
                             st.download_button(
                                 label="📥 Download Podcast Episode",
                                 data=audio_file_content,
                                 file_name=safe_filename,
-                                mime="audio/wav",
+                                mime=mime,
                                 help="Save your podcast episode to your device"
                             )
                         except Exception as file_error:

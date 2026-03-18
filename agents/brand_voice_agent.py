@@ -152,7 +152,7 @@ class BrandVoiceAgent:
                 
                 brand_agent = Agent(
                     name=self.agent_name,
-                    agent_id=self.agent_id,
+                    id=self.agent_id,
                     model=OpenAIChat(id="gpt-4o", api_key=openai_key),
                     tools=[FirecrawlTools(api_key=firecrawl_key)] if input_method == "🌐 Company Website" else [],
                     description="An AI specialist in analyzing brand voice, personality, and creating comprehensive brand guidelines.",
@@ -175,7 +175,7 @@ class BrandVoiceAgent:
                 else:
                     prompt = f"Analyze the brand voice based on this company description: {sanitized_content}"
 
-                generated_analysis: AgentRunResult = brand_agent.run(prompt)
+                generated_analysis: AgentRunResult = brand_agent.run(prompt, stream=False)
 
                 if generated_analysis.content:
                     st.success("🎉 Brand voice analysis completed successfully!")
