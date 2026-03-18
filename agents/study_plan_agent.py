@@ -4,12 +4,11 @@ from urllib.parse import urlparse
 from agno.agent import Agent
 from agno.models.openai import OpenAIChat
 from agno.tools.firecrawl import FirecrawlTools
-from agno.agent import RunResponse
+from agno_compat import AgentRunResult
 from agno.utils.log import logger
 from security_config import security_manager
 
 class SecurityError(Exception):
-    """Custom exception for security violations"""
     pass
 
 class StudyPlanAgent:
@@ -22,7 +21,6 @@ class StudyPlanAgent:
         self.firecrawl_key = None
         
     def is_safe_url(self, url):
-        """Validate URL for security - prevent SSRF attacks"""
         try:
             parsed = urlparse(url)
             if parsed.scheme not in ['http', 'https']:
@@ -32,7 +30,6 @@ class StudyPlanAgent:
             if parsed.netloc.startswith('192.168.') or parsed.netloc.startswith('10.'):
                 return False
             if parsed.netloc.startswith('172.'):
-                # Check for 172.16.0.0/12 range
                 try:
                     parts = parsed.netloc.split('.')
                     if len(parts) == 4 and 16 <= int(parts[1]) <= 31:
@@ -44,12 +41,9 @@ class StudyPlanAgent:
             return False
     
     def sanitize_input(self, text, max_length=5000):
-        """Sanitize user input to prevent injection attacks"""
         if not text or not isinstance(text, str):
             return ""
-        # Remove potentially dangerous characters
         sanitized = re.sub(r'[<>"\']', '', text)
-        # Limit length
         return sanitized[:max_length]
         
     def render_interface(self, openai_key, elevenlabs_key, firecrawl_key):
@@ -145,13 +139,11 @@ class StudyPlanAgent:
                     st.error(f"Security Error: {message}")
                     return
 
-                # Secure URL validation for URL input
                 if input_method == "🌐 Article/Course URL":
                     if not self.is_safe_url(content_input):
                         st.error("❌ Invalid or unsafe URL. Please provide a valid public URL.")
                         return
-                
-                # Sanitize all inputs
+
                 sanitized_content = self.sanitize_input(content_input, max_length=5000)
                 sanitized_level = self.sanitize_input(study_level, max_length=100)
                 sanitized_time = self.sanitize_input(time_available, max_length=100)
@@ -183,7 +175,7 @@ class StudyPlanAgent:
                 else:
                     prompt = f"Create a study plan for: {sanitized_content}"
 
-                generated_plan: RunResponse = study_agent.run(prompt)
+                generated_plan: AgentRunResult = study_agent.run(prompt)
 
                 if generated_plan.content:
                     st.success("🎉 Study plan generated successfully!")

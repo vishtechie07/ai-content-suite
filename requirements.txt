@@ -1,6 +1,6 @@
 # AI Agent Suite Dependencies
 # Core Framework
-agno>=0.1.0
+agno>=2.5.0,<3
 streamlit>=1.28.0
 
 # AI Models

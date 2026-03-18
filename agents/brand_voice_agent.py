@@ -5,12 +5,11 @@ from urllib.parse import urlparse
 from agno.agent import Agent
 from agno.models.openai import OpenAIChat
 from agno.tools.firecrawl import FirecrawlTools
-from agno.agent import RunResponse
+from agno_compat import AgentRunResult
 from agno.utils.log import logger
 from security_config import security_manager
 
 class SecurityError(Exception):
-    """Custom exception for security violations"""
     pass
 
 class BrandVoiceAgent:
@@ -23,7 +22,6 @@ class BrandVoiceAgent:
         self.firecrawl_key = None
         
     def is_safe_url(self, url):
-        """Validate URL for security - prevent SSRF attacks"""
         try:
             parsed = urlparse(url)
             if parsed.scheme not in ['http', 'https']:
@@ -33,7 +31,6 @@ class BrandVoiceAgent:
             if parsed.netloc.startswith('192.168.') or parsed.netloc.startswith('10.'):
                 return False
             if parsed.netloc.startswith('172.'):
-                # Check for 172.16.0.0/12 range
                 try:
                     parts = parsed.netloc.split('.')
                     if len(parts) == 4 and 16 <= int(parts[1]) <= 31:
@@ -45,12 +42,9 @@ class BrandVoiceAgent:
             return False
     
     def sanitize_input(self, text, max_length=5000):
-        """Sanitize user input to prevent injection attacks"""
         if not text or not isinstance(text, str):
             return ""
-        # Remove potentially dangerous characters
         sanitized = re.sub(r'[<>"\']', '', text)
-        # Limit length
         return sanitized[:max_length]
         
     def render_interface(self, openai_key, elevenlabs_key, firecrawl_key):
@@ -146,13 +140,11 @@ class BrandVoiceAgent:
                     st.error(f"Security Error: {message}")
                     return
 
-                # Secure URL validation for website input
                 if input_method == "🌐 Company Website":
                     if not self.is_safe_url(content_input):
                         st.error("❌ Invalid or unsafe URL. Please provide a valid public URL.")
                         return
-                
-                # Sanitize all inputs
+
                 sanitized_content = self.sanitize_input(content_input, max_length=5000)
                 sanitized_industry = self.sanitize_input(industry_focus, max_length=100)
                 sanitized_audience = self.sanitize_input(target_audience, max_length=100)
@@ -183,7 +175,7 @@ class BrandVoiceAgent:
                 else:
                     prompt = f"Analyze the brand voice based on this company description: {sanitized_content}"
 
-                generated_analysis: RunResponse = brand_agent.run(prompt)
+                generated_analysis: AgentRunResult = brand_agent.run(prompt)
 
                 if generated_analysis.content:
                     st.success("🎉 Brand voice analysis completed successfully!")

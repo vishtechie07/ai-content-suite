@@ -4,7 +4,7 @@ from urllib.parse import urlparse
 from agno.agent import Agent
 from agno.models.openai import OpenAIChat
 from agno.tools.firecrawl import FirecrawlTools
-from agno.agent import RunResponse
+from agno_compat import AgentRunResult
 from agno.utils.log import logger
 from security_config import security_manager
 
@@ -15,7 +15,6 @@ except ImportError:
     FIRECRAWL_SDK_AVAILABLE = False
 
 class SecurityError(Exception):
-    """Custom exception for security violations"""
     pass
 
 class VideoScriptAgent:
@@ -28,7 +27,6 @@ class VideoScriptAgent:
         self.firecrawl_key = None
         
     def is_safe_url(self, url):
-        """Validate URL for security - prevent SSRF attacks"""
         try:
             parsed = urlparse(url)
             if parsed.scheme not in ['http', 'https']:
@@ -38,7 +36,6 @@ class VideoScriptAgent:
             if parsed.netloc.startswith('192.168.') or parsed.netloc.startswith('10.'):
                 return False
             if parsed.netloc.startswith('172.'):
-                # Check for 172.16.0.0/12 range
                 try:
                     parts = parsed.netloc.split('.')
                     if len(parts) == 4 and 16 <= int(parts[1]) <= 31:
@@ -50,12 +47,9 @@ class VideoScriptAgent:
             return False
     
     def sanitize_input(self, text, max_length=5000):
-        """Sanitize user input to prevent injection attacks"""
         if not text or not isinstance(text, str):
             return ""
-        # Remove potentially dangerous characters
         sanitized = re.sub(r'[<>"\']', '', text)
-        # Limit length
         return sanitized[:max_length]
         
     def render_interface(self, openai_key, elevenlabs_key, firecrawl_key):
@@ -140,8 +134,7 @@ class VideoScriptAgent:
 
                 if input_method == "🌐 Blog URL":
                     st.info("🔍 Extracting blog content...")
-                    
-                    # Secure URL validation
+
                     if not self.is_safe_url(content_input):
                         st.error("❌ Invalid or unsafe URL. Please provide a valid public URL.")
                         return
@@ -227,7 +220,7 @@ class VideoScriptAgent:
                 else:
                     prompt = f"Create a {video_style.lower()} video script from this content:\n\n{content_for_agent}"
                 
-                generated_script: RunResponse = script_agent.run(prompt)
+                generated_script: AgentRunResult = script_agent.run(prompt)
 
                 if generated_script.content:
                     st.success("🎉 Success! Your video script has been generated!")

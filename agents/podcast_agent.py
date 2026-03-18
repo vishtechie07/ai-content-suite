@@ -7,7 +7,7 @@ from agno.agent import Agent
 from agno.models.openai import OpenAIChat
 from agno.tools.eleven_labs import ElevenLabsTools
 from agno.tools.firecrawl import FirecrawlTools
-from agno.agent import RunResponse
+from agno_compat import AgentRunResult
 from agno.utils.audio import write_audio_to_file
 from agno.utils.log import logger
 from security_config import security_manager
@@ -19,7 +19,6 @@ except ImportError:
     FIRECRAWL_SDK_AVAILABLE = False
 
 class SecurityError(Exception):
-    """Custom exception for security violations"""
     pass
 
 class PodcastAgent:
@@ -34,7 +33,6 @@ class PodcastAgent:
         self.firecrawl_key = None
         
     def is_safe_url(self, url):
-        """Validate URL for security - prevent SSRF attacks"""
         try:
             parsed = urlparse(url)
             if parsed.scheme not in ['http', 'https']:
@@ -44,7 +42,6 @@ class PodcastAgent:
             if parsed.netloc.startswith('192.168.') or parsed.netloc.startswith('10.'):
                 return False
             if parsed.netloc.startswith('172.'):
-                # Check for 172.16.0.0/12 range
                 try:
                     parts = parsed.netloc.split('.')
                     if len(parts) == 4 and 16 <= int(parts[1]) <= 31:
@@ -56,25 +53,17 @@ class PodcastAgent:
             return False
     
     def sanitize_input(self, text, max_length=5000):
-        """Sanitize user input to prevent injection attacks"""
         if not text or not isinstance(text, str):
             return ""
-        # Remove potentially dangerous characters
         sanitized = re.sub(r'[<>"\']', '', text)
-        # Limit length
         return sanitized[:max_length]
     
     def secure_file_path(self, directory, filename):
-        """Ensure file operations are within safe boundaries"""
         try:
             base_dir = Path(directory).resolve()
             current_dir = Path.cwd().resolve()
-            
-            # Ensure the directory is within current working directory
             if not base_dir.is_relative_to(current_dir):
                 raise SecurityError("Invalid directory path")
-            
-            # Ensure filename doesn't contain path traversal
             safe_filename = Path(filename).name
             if '..' in safe_filename or '/' in safe_filename or '\\' in safe_filename:
                 raise SecurityError("Invalid filename")
@@ -137,7 +126,6 @@ class PodcastAgent:
                     st.error(f"Security Error: {message}")
                     return
 
-                # Secure URL validation
                 if not self.is_safe_url(blog_url):
                     st.error("❌ Invalid or unsafe URL. Please provide a valid public URL.")
                     return
@@ -215,8 +203,7 @@ class PodcastAgent:
                 except Exception as extract_error:
                     st.error(f"❌ Content extraction failed: {str(extract_error)}")
                     return
-                
-                # Sanitize extracted content
+
                 sanitized_content = self.sanitize_input(blog_content, max_length=3000)
                 
                 podcast_creation_agent = Agent(
@@ -238,12 +225,10 @@ class PodcastAgent:
                 )
 
                 st.info("📝 Generating podcast content...")
-                
-                # Use sanitized content in prompt
+
                 prompt = f"Create a compelling podcast summary and audio from this blog content:\n\n{sanitized_content}"
-                generated_podcast: RunResponse = podcast_creation_agent.run(prompt)
-                
-                # Secure file operations
+                generated_podcast: AgentRunResult = podcast_creation_agent.run(prompt)
+
                 try:
                     output_directory = self.secure_file_path("generated_audio_files", "")
                     output_directory.mkdir(exist_ok=True)
@@ -270,7 +255,6 @@ class PodcastAgent:
                     st.success("✅ Audio generated successfully!")
                     
                     try:
-                        # Secure filename generation
                         safe_filename = f"podcast_episode_{uuid4()}.wav"
                         output_directory = self.secure_file_path(f"generated_audio_files/{user_id}", "")
                         output_directory.mkdir(exist_ok=True)
@@ -300,8 +284,7 @@ class PodcastAgent:
                         st.success(f"💾 Audio saved to: {safe_filename}")
                         
                         st.markdown("### 🎧 Listen to Your Podcast")
-                        
-                        # Secure file reading
+
                         try:
                             with open(output_filename, "rb") as audio_file:
                                 audio_file_content = audio_file.read()
