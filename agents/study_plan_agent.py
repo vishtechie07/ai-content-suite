@@ -6,15 +6,20 @@ from agno.models.openai import OpenAIChat
 from agno.tools.firecrawl import FirecrawlTools
 from agno.agent import RunResponse
 from agno.utils.log import logger
+from security_config import security_manager
 
 class SecurityError(Exception):
     """Custom exception for security violations"""
     pass
 
 class StudyPlanAgent:
+    MAX_OUTPUT_CHARS = 12000
+
     def __init__(self):
         self.agent_name = "Study Plan Creation Specialist"
         self.agent_id = "study_plan_specialist"
+        self.openai_key = None
+        self.firecrawl_key = None
         
     def is_safe_url(self, url):
         """Validate URL for security - prevent SSRF attacks"""
@@ -47,7 +52,9 @@ class StudyPlanAgent:
         # Limit length
         return sanitized[:max_length]
         
-    def render_interface(self):
+    def render_interface(self, openai_key, elevenlabs_key, firecrawl_key):
+        self.openai_key = openai_key
+        self.firecrawl_key = firecrawl_key
         st.markdown("## 📚 Study Plan Generator")
         st.markdown("""
         <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
@@ -118,6 +125,26 @@ class StudyPlanAgent:
     def generate_study_plan(self, content_input, input_method, study_level, time_available, study_duration):
         with st.spinner("📚 Creating your study plan... This may take a few moments"):
             try:
+                openai_key = self.openai_key
+                firecrawl_key = self.firecrawl_key
+
+                if not openai_key:
+                    st.error("❌ OpenAI API key is missing. Add it in the sidebar.")
+                    return
+                if input_method == "🌐 Article/Course URL" and not firecrawl_key:
+                    st.error("❌ Firecrawl API key is missing. Add it in the sidebar.")
+                    return
+
+                user_id = security_manager.get_user_id()
+                if input_method == "🌐 Article/Course URL":
+                    input_data = {"url": content_input, "study_level": study_level, "time_available": time_available, "study_duration": study_duration}
+                else:
+                    input_data = {"content": content_input, "study_level": study_level, "time_available": time_available, "study_duration": study_duration}
+                is_secure, message = security_manager.check_request_security(user_id, input_data)
+                if not is_secure:
+                    st.error(f"Security Error: {message}")
+                    return
+
                 # Secure URL validation for URL input
                 if input_method == "🌐 Article/Course URL":
                     if not self.is_safe_url(content_input):
@@ -133,8 +160,8 @@ class StudyPlanAgent:
                 study_agent = Agent(
                     name=self.agent_name,
                     agent_id=self.agent_id,
-                    model=OpenAIChat(id="gpt-4o"),
-                    tools=[FirecrawlTools()] if input_method == "🌐 Article/Course URL" else [],
+                    model=OpenAIChat(id="gpt-4o", api_key=openai_key),
+                    tools=[FirecrawlTools(api_key=firecrawl_key)] if input_method == "🌐 Article/Course URL" else [],
                     description="An AI specialist in creating personalized study plans with structured learning objectives and timelines.",
                     instructions=[
                         f"Create a {sanitized_level.lower()} level study plan for {sanitized_duration} with {sanitized_time}",
@@ -162,21 +189,23 @@ class StudyPlanAgent:
                     st.success("🎉 Study plan generated successfully!")
 
                     st.markdown("### 📚 Your Study Plan")
-                    st.markdown(generated_plan.content)
+                    generated_text = str(generated_plan.content).strip()
+                    generated_text = generated_text[:self.MAX_OUTPUT_CHARS]
+                    st.markdown(generated_text)
                     
                     st.markdown("### 💾 Download Options")
                     col1, col2 = st.columns(2)
                     with col1:
                         st.download_button(
                             label="📄 Download as TXT",
-                            data=generated_plan.content,
+                            data=generated_text,
                             file_name=f"study_plan_{sanitized_level.lower()}.txt",
                             mime="text/plain"
                         )
                     with col2:
                         st.download_button(
                             label="📝 Download as Markdown",
-                            data=generated_plan.content,
+                            data=generated_text,
                             file_name=f"study_plan_{sanitized_level.lower()}.md",
                             mime="text/markdown"
                         )
@@ -189,3 +218,7 @@ class StudyPlanAgent:
             except Exception as error_details:
                 st.error(f"❌ Error Encountered: {str(error_details)}")
                 logger.error(f"Study plan agent error: {error_details}")
+            finally:
+                if st.session_state.get("AUTO_CLEAR_KEYS", True):
+                    st.session_state["CLEAR_API_KEYS_NEXT_RUN"] = True
+                    st.rerun()

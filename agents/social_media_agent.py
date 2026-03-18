@@ -6,15 +6,20 @@ from agno.models.openai import OpenAIChat
 from agno.tools.firecrawl import FirecrawlTools
 from agno.agent import RunResponse
 from agno.utils.log import logger
+from security_config import security_manager
 
 class SecurityError(Exception):
     """Custom exception for security violations"""
     pass
 
 class SocialMediaAgent:
+    MAX_OUTPUT_CHARS = 12000
+
     def __init__(self):
         self.agent_name = "Social Media Content Specialist"
         self.agent_id = "social_media_specialist"
+        self.openai_key = None
+        self.firecrawl_key = None
         
     def is_safe_url(self, url):
         """Validate URL for security - prevent SSRF attacks"""
@@ -47,7 +52,9 @@ class SocialMediaAgent:
         # Limit length
         return sanitized[:max_length]
         
-    def render_interface(self):
+    def render_interface(self, openai_key, elevenlabs_key, firecrawl_key):
+        self.openai_key = openai_key
+        self.firecrawl_key = firecrawl_key
         st.markdown("## 📱 Social Media Content Generator")
         st.markdown("""
         <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
@@ -118,6 +125,26 @@ class SocialMediaAgent:
     def generate_social_media_posts(self, content_input, input_method, platform, content_type, post_count):
         with st.spinner("📱 Creating your social media posts... This may take a few moments"):
             try:
+                openai_key = self.openai_key
+                firecrawl_key = self.firecrawl_key
+
+                if not openai_key:
+                    st.error("❌ OpenAI API key is missing. Add it in the sidebar.")
+                    return
+                if input_method == "🌐 Article/Blog URL" and not firecrawl_key:
+                    st.error("❌ Firecrawl API key is missing. Add it in the sidebar.")
+                    return
+
+                user_id = security_manager.get_user_id()
+                if input_method == "🌐 Article/Blog URL":
+                    input_data = {"url": content_input, "platform": platform, "content_type": content_type, "post_count": post_count}
+                else:
+                    input_data = {"content": content_input, "platform": platform, "content_type": content_type, "post_count": post_count}
+                is_secure, message = security_manager.check_request_security(user_id, input_data)
+                if not is_secure:
+                    st.error(f"Security Error: {message}")
+                    return
+
                 # Secure URL validation for URL input
                 if input_method == "🌐 Article/Blog URL":
                     if not self.is_safe_url(content_input):
@@ -133,8 +160,8 @@ class SocialMediaAgent:
                 social_media_agent = Agent(
                     name=self.agent_name,
                     agent_id=self.agent_id,
-                    model=OpenAIChat(id="gpt-4o"),
-                    tools=[FirecrawlTools()] if input_method == "🌐 Article/Blog URL" else [],
+                    model=OpenAIChat(id="gpt-4o", api_key=openai_key),
+                    tools=[FirecrawlTools(api_key=firecrawl_key)] if input_method == "🌐 Article/Blog URL" else [],
                     description="An AI specialist in creating engaging social media content with platform-specific formatting and hashtags.",
                     instructions=[
                         f"Create {sanitized_count.lower()} {sanitized_type.lower()} social media posts for {sanitized_platform}",
@@ -162,21 +189,23 @@ class SocialMediaAgent:
                     st.success("🎉 Social media posts generated successfully!")
 
                     st.markdown("### 📱 Your Social Media Posts")
-                    st.markdown(generated_posts.content)
+                    generated_text = str(generated_posts.content).strip()
+                    generated_text = generated_text[:self.MAX_OUTPUT_CHARS]
+                    st.markdown(generated_text)
                     
                     st.markdown("### 💾 Download Options")
                     col1, col2 = st.columns(2)
                     with col1:
                         st.download_button(
                             label="📄 Download as TXT",
-                            data=generated_posts.content,
+                            data=generated_text,
                             file_name=f"social_media_posts_{sanitized_platform.lower()}.txt",
                             mime="text/plain"
                         )
                     with col2:
                         st.download_button(
                             label="📝 Download as Markdown",
-                            data=generated_posts.content,
+                            data=generated_text,
                             file_name=f"social_media_posts_{sanitized_platform.lower()}.md",
                             mime="text/markdown"
                         )
@@ -189,3 +218,7 @@ class SocialMediaAgent:
             except Exception as error_details:
                 st.error(f"❌ Error Encountered: {str(error_details)}")
                 logger.error(f"Social media agent error: {error_details}")
+            finally:
+                if st.session_state.get("AUTO_CLEAR_KEYS", True):
+                    st.session_state["CLEAR_API_KEYS_NEXT_RUN"] = True
+                    st.rerun()

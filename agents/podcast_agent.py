@@ -1,4 +1,3 @@
-import os
 import streamlit as st
 import re
 from uuid import uuid4
@@ -11,6 +10,7 @@ from agno.tools.firecrawl import FirecrawlTools
 from agno.agent import RunResponse
 from agno.utils.audio import write_audio_to_file
 from agno.utils.log import logger
+from security_config import security_manager
 
 try:
     from firecrawl import Firecrawl
@@ -23,9 +23,15 @@ class SecurityError(Exception):
     pass
 
 class PodcastAgent:
+    MAX_AUDIO_BYTES = 15 * 1024 * 1024
+    MAX_SUMMARY_CHARS = 4000
+
     def __init__(self):
         self.agent_name = "Podcast Creation Specialist"
         self.agent_id = "podcast_creation_specialist"
+        self.openai_key = None
+        self.elevenlabs_key = None
+        self.firecrawl_key = None
         
     def is_safe_url(self, url):
         """Validate URL for security - prevent SSRF attacks"""
@@ -78,7 +84,10 @@ class PodcastAgent:
             logger.error(f"File path security error: {e}")
             raise SecurityError("File path validation failed")
     
-    def render_interface(self):
+    def render_interface(self, openai_key, elevenlabs_key, firecrawl_key):
+        self.openai_key = openai_key
+        self.elevenlabs_key = elevenlabs_key
+        self.firecrawl_key = firecrawl_key
         st.markdown("## 🎙️ Podcast Creator")
         st.markdown("""
         <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
@@ -108,6 +117,26 @@ class PodcastAgent:
     def generate_podcast(self, blog_url):
         with st.spinner("🔄 Processing your request... This may take a few moments"):
             try:
+                openai_key = self.openai_key
+                elevenlabs_key = self.elevenlabs_key
+                firecrawl_key = self.firecrawl_key
+
+                if not openai_key:
+                    st.error("❌ OpenAI API key is missing. Add it in the sidebar.")
+                    return
+                if not elevenlabs_key:
+                    st.error("❌ ElevenLabs API key is missing. Add it in the sidebar.")
+                    return
+                if not firecrawl_key:
+                    st.error("❌ Firecrawl API key is missing. Add it in the sidebar.")
+                    return
+
+                user_id = security_manager.get_user_id()
+                is_secure, message = security_manager.check_request_security(user_id, {"url": blog_url})
+                if not is_secure:
+                    st.error(f"Security Error: {message}")
+                    return
+
                 # Secure URL validation
                 if not self.is_safe_url(blog_url):
                     st.error("❌ Invalid or unsafe URL. Please provide a valid public URL.")
@@ -116,7 +145,7 @@ class PodcastAgent:
                 st.info("🔍 Testing API connections...")
                 
                 try:
-                    test_model = OpenAIChat(id="gpt-4o")
+                    test_model = OpenAIChat(id="gpt-4o", api_key=openai_key)
                     st.success("✅ OpenAI connection successful")
                 except Exception as e:
                     st.error(f"❌ OpenAI connection failed: {str(e)}")
@@ -124,10 +153,10 @@ class PodcastAgent:
                 
                 try:
                     if FIRECRAWL_SDK_AVAILABLE:
-                        firecrawl_tools = Firecrawl(api_key=os.environ.get("FIRECRAWL_API_KEY"))
+                        firecrawl_tools = Firecrawl(api_key=firecrawl_key)
                         st.success("✅ Firecrawl connection successful")
                     else:
-                        firecrawl_tools = FirecrawlTools()
+                        firecrawl_tools = FirecrawlTools(api_key=firecrawl_key)
                         st.success("✅ Firecrawl connection successful")
                 except Exception as e:
                     st.error(f"❌ Firecrawl connection failed: {str(e)}")
@@ -135,6 +164,7 @@ class PodcastAgent:
                 
                 try:
                     elevenlabs_tools = ElevenLabsTools(
+                        api_key=elevenlabs_key,
                         voice_id="pNInz6obpgDQGcFmaJgB",
                         model_id="eleven_multilingual_v2",
                         target_directory="generated_audio_files",
@@ -226,6 +256,7 @@ class PodcastAgent:
                     
                     if len(content_text.strip()) > 100:
                         st.success("✅ Content generated successfully!")
+                        content_text = content_text[:self.MAX_SUMMARY_CHARS]
                         st.markdown("### 📝 Generated Content:")
                         st.markdown(content_text)
                     else:
@@ -241,12 +272,30 @@ class PodcastAgent:
                     try:
                         # Secure filename generation
                         safe_filename = f"podcast_episode_{uuid4()}.wav"
-                        output_filename = self.secure_file_path("generated_audio_files", safe_filename)
+                        output_directory = self.secure_file_path(f"generated_audio_files/{user_id}", "")
+                        output_directory.mkdir(exist_ok=True)
+
+                        for old_wav in output_directory.glob("*.wav"):
+                            try:
+                                old_wav.unlink()
+                            except Exception:
+                                pass
+
+                        output_filename = self.secure_file_path(f"generated_audio_files/{user_id}", safe_filename)
                         
                         write_audio_to_file(
                             audio=generated_podcast.audio[0].base64_audio,
                             filename=str(output_filename)
                         )
+
+                        size_bytes = output_filename.stat().st_size
+                        if size_bytes > self.MAX_AUDIO_BYTES:
+                            try:
+                                output_filename.unlink()
+                            except Exception:
+                                pass
+                            st.error("❌ Generated audio exceeds the allowed size.")
+                            return
                         
                         st.success(f"💾 Audio saved to: {safe_filename}")
                         
@@ -285,3 +334,7 @@ class PodcastAgent:
             except Exception as error_details:
                 st.error(f"❌ Error Encountered: {str(error_details)}")
                 logger.error(f"Podcast agent error: {error_details}")
+            finally:
+                if st.session_state.get("AUTO_CLEAR_KEYS", True):
+                    st.session_state["CLEAR_API_KEYS_NEXT_RUN"] = True
+                    st.rerun()

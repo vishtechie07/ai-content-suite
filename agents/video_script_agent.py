@@ -1,5 +1,4 @@
 import streamlit as st
-import os
 import re
 from urllib.parse import urlparse
 from agno.agent import Agent
@@ -7,6 +6,7 @@ from agno.models.openai import OpenAIChat
 from agno.tools.firecrawl import FirecrawlTools
 from agno.agent import RunResponse
 from agno.utils.log import logger
+from security_config import security_manager
 
 try:
     from firecrawl import Firecrawl
@@ -19,9 +19,13 @@ class SecurityError(Exception):
     pass
 
 class VideoScriptAgent:
+    MAX_OUTPUT_CHARS = 20000
+
     def __init__(self):
         self.agent_name = "Video Script Creation Specialist"
         self.agent_id = "video_script_specialist"
+        self.openai_key = None
+        self.firecrawl_key = None
         
     def is_safe_url(self, url):
         """Validate URL for security - prevent SSRF attacks"""
@@ -54,7 +58,9 @@ class VideoScriptAgent:
         # Limit length
         return sanitized[:max_length]
         
-    def render_interface(self):
+    def render_interface(self, openai_key, elevenlabs_key, firecrawl_key):
+        self.openai_key = openai_key
+        self.firecrawl_key = firecrawl_key
         st.markdown("## 🎬 Video Script Generator")
         st.markdown("""
         <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
@@ -112,6 +118,26 @@ class VideoScriptAgent:
     def generate_video_script(self, content_input, input_method, video_style, video_duration):
         with st.spinner("🎬 Creating your video script... This may take a few moments"):
             try:
+                openai_key = self.openai_key
+                firecrawl_key = self.firecrawl_key
+
+                if not openai_key:
+                    st.error("❌ OpenAI API key is missing. Add it in the sidebar.")
+                    return
+                if input_method == "🌐 Blog URL" and not firecrawl_key:
+                    st.error("❌ Firecrawl API key is missing. Add it in the sidebar.")
+                    return
+
+                user_id = security_manager.get_user_id()
+                if input_method == "🌐 Blog URL":
+                    input_data = {"url": content_input, "video_style": video_style, "video_duration": video_duration}
+                else:
+                    input_data = {"content": content_input, "video_style": video_style, "video_duration": video_duration}
+                is_secure, message = security_manager.check_request_security(user_id, input_data)
+                if not is_secure:
+                    st.error(f"Security Error: {message}")
+                    return
+
                 if input_method == "🌐 Blog URL":
                     st.info("🔍 Extracting blog content...")
                     
@@ -122,10 +148,10 @@ class VideoScriptAgent:
                     
                     try:
                         if FIRECRAWL_SDK_AVAILABLE:
-                            firecrawl_tools = Firecrawl(api_key=os.environ.get("FIRECRAWL_API_KEY"))
+                            firecrawl_tools = Firecrawl(api_key=firecrawl_key)
                             st.success("✅ Firecrawl connection successful")
                         else:
-                            firecrawl_tools = FirecrawlTools()
+                            firecrawl_tools = FirecrawlTools(api_key=firecrawl_key)
                             st.success("✅ Firecrawl connection successful")
                     except Exception as e:
                         st.error(f"❌ Firecrawl connection failed: {str(e)}")
@@ -179,7 +205,7 @@ class VideoScriptAgent:
                 script_agent = Agent(
                     name=self.agent_name,
                     agent_id=self.agent_id,
-                    model=OpenAIChat(id="gpt-4o"),
+                    model=OpenAIChat(id="gpt-4o", api_key=openai_key),
                     tools=[],
                     description="An AI specialist in creating engaging video scripts with proper structure and timing.",
                     instructions=[
@@ -207,21 +233,23 @@ class VideoScriptAgent:
                     st.success("🎉 Success! Your video script has been generated!")
 
                     st.markdown("### 📝 Your Video Script")
-                    st.markdown(generated_script.content)
+                    generated_text = str(generated_script.content).strip()
+                    generated_text = generated_text[:self.MAX_OUTPUT_CHARS]
+                    st.markdown(generated_text)
                     
                     st.markdown("### 💾 Download Options")
                     col1, col2 = st.columns(2)
                     with col1:
                         st.download_button(
                             label="📄 Download as TXT",
-                            data=generated_script.content,
+                            data=generated_text,
                             file_name=f"video_script_{video_style.lower()}.txt",
                             mime="text/plain"
                         )
                     with col2:
                         st.download_button(
                             label="📝 Download as Markdown",
-                            data=generated_script.content,
+                            data=generated_text,
                             file_name=f"video_script_{video_style.lower()}.md",
                             mime="text/markdown"
                         )
@@ -234,3 +262,7 @@ class VideoScriptAgent:
             except Exception as error_details:
                 st.error(f"❌ Error Encountered: {str(error_details)}")
                 logger.error(f"Video script agent error: {error_details}")
+            finally:
+                if st.session_state.get("AUTO_CLEAR_KEYS", True):
+                    st.session_state["CLEAR_API_KEYS_NEXT_RUN"] = True
+                    st.rerun()

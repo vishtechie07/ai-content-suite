@@ -1,13 +1,10 @@
-import os
 import streamlit as st
-import secrets
 import re
 from agno.agent import Agent
 from agno.models.openai import OpenAIChat
 from agno.tools.eleven_labs import ElevenLabsTools
 from agno.tools.firecrawl import FirecrawlTools
 from agno.agent import Agent, RunResponse
-from agno.utils.audio import write_audio_to_file
 from agno.utils.log import logger
 
 from agents.podcast_agent import PodcastAgent
@@ -17,19 +14,13 @@ from agents.study_plan_agent import StudyPlanAgent
 from agents.social_media_agent import SocialMediaAgent
 
 class SecurityError(Exception):
-    """Custom exception for security violations"""
     pass
 
 def validate_api_key(api_key, service_name):
-    """Validate API key format and security"""
     if not api_key or not isinstance(api_key, str):
         return False
-    
-    # Check minimum length
     if len(api_key) < 20:
         return False
-    
-    # Check for common patterns
     if service_name.lower() == "openai":
         if not api_key.startswith("sk-"):
             return False
@@ -40,38 +31,47 @@ def validate_api_key(api_key, service_name):
         if len(api_key) < 20:
             return False
     
-    # Remove potentially dangerous characters
     if re.search(r'[<>"\']', api_key):
         return False
     
     return True
 
 def secure_environment_setup(openai_key, elevenlabs_key, firecrawl_key):
-    """Securely set environment variables"""
     try:
-        if openai_key and validate_api_key(openai_key, "openai"):
-            session_key = f"OPENAI_API_KEY_{secrets.token_hex(8)}"
-            st.session_state[session_key] = openai_key
-            os.environ["OPENAI_API_KEY"] = openai_key
-        elif openai_key:
-            st.error("❌ Invalid OpenAI API key format")
-            return False
+        if openai_key:
+            if validate_api_key(openai_key, "openai"):
+                pass
+            else:
+                st.error("❌ Invalid OpenAI API key format")
+                st.session_state["openai_key_input"] = ""
+                st.session_state["elevenlabs_key_input"] = ""
+                st.session_state["firecrawl_key_input"] = ""
+                return False
+        else:
+            pass
+        if elevenlabs_key:
+            if validate_api_key(elevenlabs_key, "elevenlabs"):
+                pass
+            else:
+                st.error("❌ Invalid ElevenLabs API key format")
+                st.session_state["openai_key_input"] = ""
+                st.session_state["elevenlabs_key_input"] = ""
+                st.session_state["firecrawl_key_input"] = ""
+                return False
+        else:
+            pass
             
-        if elevenlabs_key and validate_api_key(elevenlabs_key, "elevenlabs"):
-            session_key = f"ELEVENLABS_API_KEY_{secrets.token_hex(8)}"
-            st.session_state[session_key] = elevenlabs_key
-            os.environ["ELEVENLABS_API_KEY"] = elevenlabs_key
-        elif elevenlabs_key:
-            st.error("❌ Invalid ElevenLabs API key format")
-            return False
-            
-        if firecrawl_key and validate_api_key(firecrawl_key, "firecrawl"):
-            session_key = f"FIRECRAWL_API_KEY_{secrets.token_hex(8)}"
-            st.session_state[session_key] = firecrawl_key
-            os.environ["FIRECRAWL_API_KEY"] = firecrawl_key
-        elif firecrawl_key:
-            st.error("❌ Invalid Firecrawl API key format")
-            return False
+        if firecrawl_key:
+            if validate_api_key(firecrawl_key, "firecrawl"):
+                pass
+            else:
+                st.error("❌ Invalid Firecrawl API key format")
+                st.session_state["openai_key_input"] = ""
+                st.session_state["elevenlabs_key_input"] = ""
+                st.session_state["firecrawl_key_input"] = ""
+                return False
+        else:
+            pass
             
         return True
     except Exception as e:
@@ -86,11 +86,10 @@ st.set_page_config(
     menu_items={
         'Get Help': 'https://github.com/your-repo/ai_agent_suite',
         'Report a bug': 'https://github.com/your-repo/ai_agent_suite/issues',
-        'About': '# AI Agent Suite\n\nYour comprehensive AI toolkit for content creation and analysis.'
+        'About': '# Agent Suite\n\nMulti-tool content creation helpers.'
     }
 )
 
-# Security headers and CSP
 st.markdown("""
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; font-src 'self' data:;">
 <meta http-equiv="X-Content-Type-Options" content="nosniff">
@@ -301,6 +300,12 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 def main():
+    if st.session_state.get("CLEAR_API_KEYS_NEXT_RUN"):
+        st.session_state["openai_key_input"] = ""
+        st.session_state["elevenlabs_key_input"] = ""
+        st.session_state["firecrawl_key_input"] = ""
+        st.session_state["CLEAR_API_KEYS_NEXT_RUN"] = False
+
     if 'selected_agent' not in st.session_state:
         st.session_state.selected_agent = None
     
@@ -327,25 +332,32 @@ def main():
         openai_key = st.text_input(
             "OpenAI API Key",
             type="password",
+            key="openai_key_input",
             help="Enter your OpenAI API key for GPT-4 access"
         )
         
         elevenlabs_key = st.text_input(
             "ElevenLabs API Key",
             type="password",
+            key="elevenlabs_key_input",
             help="Enter your ElevenLabs API key for voice synthesis"
         )
         
         firecrawl_key = st.text_input(
             "Firecrawl API Key",
             type="password",
+            key="firecrawl_key_input",
             help="Enter your Firecrawl API key for web scraping"
         )
+
+        st.session_state["AUTO_CLEAR_KEYS"] = st.checkbox(
+            "Auto-clear keys after each run",
+            value=st.session_state.get("AUTO_CLEAR_KEYS", True),
+        )
         
-        # Secure environment setup
-        if openai_key or elevenlabs_key or firecrawl_key:
-            if not secure_environment_setup(openai_key, elevenlabs_key, firecrawl_key):
-                st.warning("⚠️ Please check your API key formats")
+        keys_ok = secure_environment_setup(openai_key, elevenlabs_key, firecrawl_key)
+        if not keys_ok:
+            st.warning("⚠️ Please check your API key formats")
         
         st.markdown("### 👤 Agent Selection")
         
@@ -371,28 +383,30 @@ def main():
         
         st.markdown('</div>', unsafe_allow_html=True)
     
-    if selected_agent:
+    if selected_agent and keys_ok:
         st.session_state.selected_agent = selected_agent
         
         if "🎙️ Podcast Creator" in selected_agent:
             podcast_agent = PodcastAgent()
-            podcast_agent.render_interface()
+            podcast_agent.render_interface(openai_key, elevenlabs_key, firecrawl_key)
             
         elif "🎬 Video Script Generator" in selected_agent:
             video_script_agent = VideoScriptAgent()
-            video_script_agent.render_interface()
+            video_script_agent.render_interface(openai_key, elevenlabs_key, firecrawl_key)
             
         elif "🎯 Brand Voice Agent" in selected_agent:
             brand_voice_agent = BrandVoiceAgent()
-            brand_voice_agent.render_interface()
+            brand_voice_agent.render_interface(openai_key, elevenlabs_key, firecrawl_key)
             
         elif "📚 Study Plan Agent" in selected_agent:
             study_plan_agent = StudyPlanAgent()
-            study_plan_agent.render_interface()
+            study_plan_agent.render_interface(openai_key, elevenlabs_key, firecrawl_key)
             
         elif "📱 Social Media Agent" in selected_agent:
             social_media_agent = SocialMediaAgent()
-            social_media_agent.render_interface()
+            social_media_agent.render_interface(openai_key, elevenlabs_key, firecrawl_key)
+    elif selected_agent and not keys_ok:
+        st.info("Enter valid API keys to enable this app.")
     
     st.markdown("""
     <div class="footer">

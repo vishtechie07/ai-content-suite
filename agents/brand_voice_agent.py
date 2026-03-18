@@ -7,15 +7,20 @@ from agno.models.openai import OpenAIChat
 from agno.tools.firecrawl import FirecrawlTools
 from agno.agent import RunResponse
 from agno.utils.log import logger
+from security_config import security_manager
 
 class SecurityError(Exception):
     """Custom exception for security violations"""
     pass
 
 class BrandVoiceAgent:
+    MAX_OUTPUT_CHARS = 12000
+
     def __init__(self):
         self.agent_name = "Brand Voice Analysis Specialist"
         self.agent_id = "brand_voice_specialist"
+        self.openai_key = None
+        self.firecrawl_key = None
         
     def is_safe_url(self, url):
         """Validate URL for security - prevent SSRF attacks"""
@@ -48,7 +53,9 @@ class BrandVoiceAgent:
         # Limit length
         return sanitized[:max_length]
         
-    def render_interface(self):
+    def render_interface(self, openai_key, elevenlabs_key, firecrawl_key):
+        self.openai_key = openai_key
+        self.firecrawl_key = firecrawl_key
         st.markdown("## 🎨 Brand Voice Analyzer")
         st.markdown("""
         <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
@@ -119,6 +126,26 @@ class BrandVoiceAgent:
     def analyze_brand_voice(self, content_input, input_method, industry_focus, target_audience, analysis_depth):
         with st.spinner("🎨 Analyzing your brand voice... This may take a few moments"):
             try:
+                openai_key = self.openai_key
+                firecrawl_key = self.firecrawl_key
+
+                if not openai_key:
+                    st.error("❌ OpenAI API key is missing. Add it in the sidebar.")
+                    return
+                if input_method == "🌐 Company Website" and not firecrawl_key:
+                    st.error("❌ Firecrawl API key is missing. Add it in the sidebar.")
+                    return
+
+                user_id = security_manager.get_user_id()
+                if input_method == "🌐 Company Website":
+                    input_data = {"url": content_input, "industry_focus": industry_focus, "target_audience": target_audience, "analysis_depth": analysis_depth}
+                else:
+                    input_data = {"content": content_input, "industry_focus": industry_focus, "target_audience": target_audience, "analysis_depth": analysis_depth}
+                is_secure, message = security_manager.check_request_security(user_id, input_data)
+                if not is_secure:
+                    st.error(f"Security Error: {message}")
+                    return
+
                 # Secure URL validation for website input
                 if input_method == "🌐 Company Website":
                     if not self.is_safe_url(content_input):
@@ -134,8 +161,8 @@ class BrandVoiceAgent:
                 brand_agent = Agent(
                     name=self.agent_name,
                     agent_id=self.agent_id,
-                    model=OpenAIChat(id="gpt-4o"),
-                    tools=[FirecrawlTools()] if input_method == "🌐 Company Website" else [],
+                    model=OpenAIChat(id="gpt-4o", api_key=openai_key),
+                    tools=[FirecrawlTools(api_key=firecrawl_key)] if input_method == "🌐 Company Website" else [],
                     description="An AI specialist in analyzing brand voice, personality, and creating comprehensive brand guidelines.",
                     instructions=[
                         f"Analyze the brand voice for a {sanitized_industry} company targeting {sanitized_audience}",
@@ -162,21 +189,23 @@ class BrandVoiceAgent:
                     st.success("🎉 Brand voice analysis completed successfully!")
 
                     st.markdown("### 🎭 Your Brand Voice Analysis")
-                    st.markdown(generated_analysis.content)
+                    generated_text = str(generated_analysis.content).strip()
+                    generated_text = generated_text[:self.MAX_OUTPUT_CHARS]
+                    st.markdown(generated_text)
                     
                     st.markdown("### 💾 Download Options")
                     col1, col2 = st.columns(2)
                     with col1:
                         st.download_button(
                             label="📄 Download as TXT",
-                            data=generated_analysis.content,
+                            data=generated_text,
                             file_name=f"brand_voice_analysis_{sanitized_industry.lower()}.txt",
                             mime="text/plain"
                         )
                     with col2:
                         st.download_button(
                             label="📝 Download as Markdown",
-                            data=generated_analysis.content,
+                            data=generated_text,
                             file_name=f"brand_voice_analysis_{sanitized_industry.lower()}.md",
                             mime="text/markdown"
                         )
@@ -189,3 +218,7 @@ class BrandVoiceAgent:
             except Exception as error_details:
                 st.error(f"❌ Error Encountered: {str(error_details)}")
                 logger.error(f"Brand voice agent error: {error_details}")
+            finally:
+                if st.session_state.get("AUTO_CLEAR_KEYS", True):
+                    st.session_state["CLEAR_API_KEYS_NEXT_RUN"] = True
+                    st.rerun()

@@ -1,8 +1,4 @@
-"""
-Security Configuration and Utilities for AI Agent Suite
-This module provides comprehensive security features including rate limiting,
-input validation, and security headers.
-"""
+"""Rate limiting, input validation, and security helpers."""
 
 import time
 import hashlib
@@ -17,11 +13,11 @@ class SecurityConfig:
     """Centralized security configuration and utilities"""
     
     # Rate limiting configuration
-    RATE_LIMIT_REQUESTS = 20  # requests per minute
+    RATE_LIMIT_REQUESTS = 5   # requests per minute
     RATE_LIMIT_WINDOW = 60    # seconds
     
     # Input validation limits
-    MAX_INPUT_LENGTH = 10000
+    MAX_INPUT_LENGTH = 6000
     MAX_URL_LENGTH = 2048
     MAX_FILENAME_LENGTH = 255
     
@@ -152,17 +148,25 @@ class InputValidator:
         """Sanitize user input to prevent injection attacks"""
         if not text or not isinstance(text, str):
             return ""
+
+        max_len = max_length or SecurityConfig.MAX_INPUT_LENGTH
+        if len(text) > max_len:
+            return ""
         
-        # Remove potentially dangerous characters
+        # Reject directly if known-dangerous patterns appear.
+        if re.search(r'[<>"\']', text):
+            return ""
+
+        text_lower = text.lower()
+        for pattern in SecurityConfig.BLOCKED_PATTERNS:
+            if re.search(pattern, text_lower, re.IGNORECASE):
+                return ""
+
         sanitized = re.sub(r'[<>"\']', '', text)
-        
-        # Remove blocked patterns
         for pattern in SecurityConfig.BLOCKED_PATTERNS:
             sanitized = re.sub(pattern, '', sanitized, flags=re.IGNORECASE)
-        
-        # Limit length
-        max_len = max_length or SecurityConfig.MAX_INPUT_LENGTH
-        return sanitized[:max_len]
+
+        return sanitized
     
     @staticmethod
     def validate_filename(filename: str) -> bool:
@@ -236,16 +240,18 @@ class SecurityLogger:
         timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
         user_info = f"User: {user_id}" if user_id else "User: Unknown"
         
-        log_entry = f"[{timestamp}] SECURITY: {event_type} - {details} - {user_info}"
+        safe_details = details or ""
+        safe_details = safe_details.replace("\n", " ").replace("\r", " ")
+        safe_details = re.sub(r"sk-[A-Za-z0-9]{10,}", "[REDACTED_KEY]", safe_details)
+        if len(safe_details) > 120:
+            safe_details = safe_details[:120] + "..."
         
-        # Log to Streamlit
+        log_entry = f"[{timestamp}] SECURITY: {event_type} - {safe_details} - {user_info}"
+        
         if st.session_state.get('security_log'):
             st.session_state.security_log.append(log_entry)
         else:
             st.session_state.security_log = [log_entry]
-        
-        # Log to console (in production, this would go to a secure log file)
-        print(log_entry)
 
 class SecurityManager:
     """Main security manager class"""
@@ -287,19 +293,13 @@ class SecurityManager:
             st.session_state.user_id = secrets.token_hex(16)
         return st.session_state.user_id
 
-# Global security manager instance
 security_manager = SecurityManager()
 
-# Security decorator for functions
 def secure_function(func):
     """Decorator to add security checks to functions"""
     def wrapper(*args, **kwargs):
         user_id = security_manager.get_user_id()
-        
-        # Extract input data from kwargs
         input_data = {k: v for k, v in kwargs.items() if isinstance(v, str)}
-        
-        # Security check
         is_secure, message = security_manager.check_request_security(user_id, input_data)
         if not is_secure:
             st.error(f"Security Error: {message}")
