@@ -19,6 +19,14 @@ Create personalized learning paths from any content. Great for students, teacher
 ### 📱 Social Media Agent
 Transform content into platform-specific social media posts. Works with Twitter, LinkedIn, Instagram, and Facebook.
 
+## Recent changes
+
+- **Sidebar API keys** — Keys are entered in the app sidebar and passed only into the SDK calls that need them (not written to shared `os.environ`), so different visitors do not overwrite each other’s credentials on public hosting.
+- **Auto-clear keys** — Optional checkbox in the sidebar clears key fields after each agent run (via a follow-up rerun).
+- **`security_config.py`** — Per-visitor rate limiting, stricter input validation, and output caps where applied.
+- **Podcast output** — Audio files go under `generated_audio_files/<visitor-id>/`.
+- **Deploy on GitHub** — Use [Streamlit Community Cloud](https://share.streamlit.io/) with main file `ai_agent_suite.py` and `requirements.txt`. This repo is a Streamlit app.
+
 ## Getting Started
 
 ### What You Need
@@ -48,6 +56,8 @@ Transform content into platform-specific social media posts. Works with Twitter,
    ELEVENLABS_API_KEY=your_elevenlabs_api_key_here
    FIRECRAWL_API_KEY=your_firecrawl_api_key_here
    ```
+
+   You can also rely on the **sidebar only** for keys when running Streamlit (`.env` is optional for local use).
 
 4. **Run it**
    ```bash
@@ -134,6 +144,13 @@ Transform content into platform-specific social media posts. Works with Twitter,
 - Make sure you have internet
 - Verify the services are working
 
+**OpenAI “exceeded quota” while billing looks fine**
+- The key may belong to a different org/project than the account you’re viewing. Create a new API key from the org that has billing and paste it in the sidebar.
+
+**Windows: setting env vars**
+- In **Command Prompt**: `set OPENAI_API_KEY=sk-...`
+- In **PowerShell**: `$env:OPENAI_API_KEY="sk-..."`
+
 **Content Extraction Fails**
 - Check if the URL is public and accessible
 - Some sites block scraping
@@ -169,6 +186,7 @@ ai_agent_suite/
 │   └── __init__.py           # Package setup
 ├── generated_audio_files/     # Where podcasts go
 ├── ai_agent_suite.py         # Main app
+├── security_config.py        # Rate limits & input validation
 ├── requirements.txt           # Dependencies
 ├── .env                      # Your API keys (create this)
 └── README.md                 # This file
